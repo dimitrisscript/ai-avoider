@@ -30,6 +30,10 @@ export default function Home() {
   const [hiveOrig, setHiveOrig] = useState<{ ai?: number; source?: string } | null>(null);
   const [hiveClean, setHiveClean] = useState<{ ai?: number; source?: string } | null>(null);
   const [hiveBusy, setHiveBusy] = useState(false);
+  const [illKey, setIllKey] = useState<string>("");
+  const [illOrig, setIllOrig] = useState<number | null>(null);
+  const [illClean, setIllClean] = useState<number | null>(null);
+  const [illBusy, setIllBusy] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -128,6 +132,23 @@ export default function Home() {
       }
     }
     return { ai, source };
+  };
+
+  const queryIlluminarty = async (b: Blob) => {
+    const fd = new FormData();
+    fd.append("image", b);
+    const res = await fetch("/api/illuminarty", {
+      method: "POST",
+      headers: {
+        "x-illuminarty-key": illKey,
+      },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || data?.error || "Illuminarty request failed");
+    const p = data?.probability;
+    if (typeof p === "number") return Math.max(0, Math.min(1, p));
+    return null;
   };
 
   return (
@@ -270,6 +291,60 @@ export default function Home() {
                       Cleaned: AI~{((hiveClean.ai ?? 0) * 100).toFixed(1)}% {hiveClean.source !== "none" && `· ${hiveClean.source}`}
                     </p>
                   )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+              <h3 className="mb-2 text-sm font-semibold">Illuminarty AI detection (optional)</h3>
+              <p className="mb-2 text-xs text-zinc-500">
+                Uses Illuminarty v0 API via local proxy (multipart form). Requires ApiKey-v1 key.
+              </p>
+              <input
+                type="password"
+                placeholder="Illuminarty ApiKey-v1 key"
+                value={illKey}
+                onChange={(e) => setIllKey(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 bg-transparent p-2 text-sm dark:border-zinc-700"
+              />
+              <div className="mt-2 flex gap-2">
+                <button
+                  disabled={illBusy || !illKey || !originalFile}
+                  onClick={async () => {
+                    if (!originalFile) return;
+                    setIllBusy(true);
+                    try {
+                      const o = await queryIlluminarty(originalFile);
+                      setIllOrig(o);
+                      if (cleanedBlob) {
+                        const c = await queryIlluminarty(cleanedBlob);
+                        setIllClean(c);
+                      }
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Illuminarty test failed");
+                    } finally {
+                      setIllBusy(false);
+                    }
+                  }}
+                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {illBusy ? "Testing..." : "Test before/after"}
+                </button>
+                <button
+                  disabled={illOrig === null && illClean === null}
+                  onClick={() => {
+                    setIllOrig(null);
+                    setIllClean(null);
+                  }}
+                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs dark:border-zinc-700"
+                >
+                  Clear
+                </button>
+              </div>
+              {(illOrig !== null || illClean !== null) && (
+                <div className="mt-2 space-y-1 text-xs">
+                  {illOrig !== null && <p>Original: AI~{(illOrig * 100).toFixed(1)}%</p>}
+                  {illClean !== null && <p>Cleaned: AI~{(illClean * 100).toFixed(1)}%</p>}
                 </div>
               )}
             </div>
