@@ -79,13 +79,13 @@ function generateCorrelatedNoise(
   height: number,
   strength: number
 ): Float32Array {
-  const scale = 4;
+  const scale = 2;
   const lw = Math.max(1, Math.ceil(width / scale));
   const lh = Math.max(1, Math.ceil(height / scale));
   const lowRes = new Float32Array(lw * lh);
 
   for (let i = 0; i < lowRes.length; i++) {
-    lowRes[i] = (Math.random() * 2 - 1) * strength;
+    lowRes[i] = (Math.random() * 2 - 1) * strength * 0.8;
   }
 
   const noise = new Float32Array(width * height);
@@ -122,8 +122,10 @@ function applyBayerWeightedNoise(
       const i = (y * width + x) * 4;
       const n = noise[y * width + x];
       const isGreen = (x + y) % 2 === 0;
-      const weight = isGreen ? 1.0 : 0.6;
-      const v = Math.round(n * weight);
+      const weight = isGreen ? 1.0 : 0.7;
+      const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      const shadowBoost = lum < 100 ? 1.4 : lum < 160 ? 1.2 : 1.0;
+      const v = Math.round(n * weight * shadowBoost);
       for (let c = 0; c < 3; c++) {
         let nv = data[i + c] + v;
         if (nv < 0) nv = 0;

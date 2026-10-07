@@ -26,6 +26,10 @@ export default function Home() {
   const [error, setError] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [hiveKey, setHiveKey] = useState<string>("");
+  const [hiveOrig, setHiveOrig] = useState<{ ai?: number; source?: string } | null>(null);
+  const [hiveClean, setHiveClean] = useState<{ ai?: number; source?: string } | null>(null);
+  const [hiveBusy, setHiveBusy] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -89,6 +93,42 @@ export default function Home() {
       (m, i) => m.found && !cleanedReport.markers[i]?.found
     ).length;
   }, [originalReport, cleanedReport]);
+
+  const blobToBase64 = (b: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onloadend = () => {
+        const s = r.result as string;
+        const i = s.indexOf(",");
+        resolve(i >= 0 ? s.substring(i + 1) : s);
+      };
+      r.onerror = reject;
+      r.readAsDataURL(b);
+    });
+
+  const queryHive = async (b: Blob) => {
+    const base64 = await blobToBase64(b);
+    const res = await fetch("/api/hive-detect", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-hive-key": hiveKey,
+      },
+      body: JSON.stringify({ input: { media: { base64 } } }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || data?.error || "Hive request failed");
+    const out = data?.status?.[0]?.response?.output?.[0]?.classes || [];
+    let ai = 0;
+    let source = "none";
+    for (const c of out) {
+      if (c.class === "ai_generated" && c.score > ai) ai = c.score;
+      if (c.class && c.score > 0.5 && c.class !== "ai_generated" && c.class !== "not_ai_generated") {
+        source = c.class;
+      }
+    }
+    return { ai, source };
+  };
 
   return (
     <div className="min-h-full bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-100">
@@ -175,6 +215,64 @@ export default function Home() {
                 {formatBytes(cleanedReport.fileSize)}
               </p>
             )}
+
+            <div className="mt-4 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+              <h3 className="mb-2 text-sm font-semibold">Hive AI detection (optional)</h3>
+              <p className="mb-2 text-xs text-zinc-500">
+                Uses Hive&apos;s AI-Generated/Deepfake detection via local proxy. Key stored only in memory for this request. Requires Bearer API key from Hive.
+              </p>
+              <input
+                type="password"
+                placeholder="Hive Bearer API key"
+                value={hiveKey}
+                onChange={(e) => setHiveKey(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 bg-transparent p-2 text-sm dark:border-zinc-700"
+              />
+              <div className="mt-2 flex gap-2">
+                <button
+                  disabled={hiveBusy || !hiveKey || !originalFile}
+                  onClick={async () => {
+                    if (!originalFile) return;
+                    setHiveBusy(true);
+                    try {
+                      setHiveOrig(await queryHive(originalFile));
+                      if (cleanedBlob) setHiveClean(await queryHive(cleanedBlob));
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Hive test failed");
+                    } finally {
+                      setHiveBusy(false);
+                    }
+                  }}
+                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {hiveBusy ? "Testing..." : "Test before/after"}
+                </button>
+                <button
+                  disabled={!hiveOrig && !hiveClean}
+                  onClick={() => {
+                    setHiveOrig(null);
+                    setHiveClean(null);
+                  }}
+                  className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs dark:border-zinc-700"
+                >
+                  Clear
+                </button>
+              </div>
+              {(hiveOrig || hiveClean) && (
+                <div className="mt-2 space-y-1 text-xs">
+                  {hiveOrig && (
+                    <p>
+                      Original: AI~{((hiveOrig.ai ?? 0) * 100).toFixed(1)}% {hiveOrig.source !== "none" && `· ${hiveOrig.source}`}
+                    </p>
+                  )}
+                  {hiveClean && (
+                    <p>
+                      Cleaned: AI~{((hiveClean.ai ?? 0) * 100).toFixed(1)}% {hiveClean.source !== "none" && `· ${hiveClean.source}`}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </section>
 
           <aside className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -296,7 +394,7 @@ export default function Home() {
                 className="mt-1 w-full"
               />
               <span className="text-xs text-zinc-500">
-                Subtle barrel distortion. Breaks "too perfect" geometry.
+                Subtle barrel distortion. Breaks &ldquo;too perfect&rdquo; geometry.
               </span>
             </label>
 
