@@ -12,6 +12,7 @@ export interface CleanerSettings {
   safeResize: boolean; // apply ~0.8% shrink when no other resize applies, to break exact hashes
   chromaShift: number; // 0 - 2, sub-pixel channel offset (chromatic aberration)
   lensDistort: number; // 0 - 1, barrel distortion strength
+  prnuStrength: number; // 0 - 2, PRNU-like gain map strength (1 = subtle)
 }
 
 export const DEFAULT_SETTINGS: CleanerSettings = {
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: CleanerSettings = {
   safeResize: true,
   chromaShift: 0.8,
   lensDistort: 0.3,
+  prnuStrength: 1.0,
 };
 
 export function mimeFor(format: OutputFormat): string {
@@ -128,6 +130,86 @@ function applyBayerWeightedNoise(
         else if (nv > 255) nv = 255;
         data[i + c] = nv;
       }
+    }
+  }
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function generatePRNUGainMap(
+  width: number,
+  height: number,
+  strength: number
+): Float32Array {
+  const rng = mulberry32(0x9e3779b9);
+
+  const lowScale = 8;
+  const lw = Math.max(1, Math.ceil(width / lowScale));
+  const lh = Math.max(1, Math.ceil(height / lowScale));
+  const lowRes = new Float32Array(lw * lh);
+  for (let i = 0; i < lowRes.length; i++) {
+    lowRes[i] = (rng() * 2 - 1) * strength * 0.006;
+  }
+
+  const highRes = new Float32Array(width * height);
+  for (let i = 0; i < highRes.length; i++) {
+    highRes[i] = (rng() * 2 - 1) * strength * 0.004;
+  }
+
+  const gain = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const ly = y / lowScale;
+    const y0 = Math.floor(ly);
+    const y1 = Math.min(lh - 1, y0 + 1);
+    const fy = ly - y0;
+    for (let x = 0; x < width; x++) {
+      const lx = x / lowScale;
+      const x0 = Math.floor(lx);
+      const x1 = Math.min(lw - 1, x0 + 1);
+      const fx = lx - x0;
+      const v00 = lowRes[y0 * lw + x0];
+      const v10 = lowRes[y0 * lw + x1];
+      const v01 = lowRes[y1 * lw + x0];
+      const v11 = lowRes[y1 * lw + x1];
+      const top = v00 + (v10 - v00) * fx;
+      const bot = v01 + (v11 - v01) * fx;
+      const low = top + (bot - top) * fy;
+      gain[y * width + x] = 1.0 + low + highRes[y * width + x];
+    }
+  }
+  return gain;
+}
+
+function applyPRNU(
+  data: Uint8ClampedArray,
+  gain: Float32Array,
+  width: number,
+  height: number
+): void {
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const g = gain[y * width + x];
+      const isGreen = (x + y) % 2 === 0;
+      const w = isGreen ? 1.0 : 0.7;
+      const gR = 1.0 + (g - 1.0) * w * 0.8;
+      const gG = 1.0 + (g - 1.0) * w;
+      const gB = 1.0 + (g - 1.0) * w * 0.8;
+      let nv = data[i] * gR;
+      data[i] = nv < 0 ? 0 : nv > 255 ? 255 : nv;
+      nv = data[i + 1] * gG;
+      data[i + 1] = nv < 0 ? 0 : nv > 255 ? 255 : nv;
+      nv = data[i + 2] * gB;
+      data[i + 2] = nv < 0 ? 0 : nv > 255 ? 255 : nv;
     }
   }
 }
@@ -261,6 +343,13 @@ export async function cleanImage(
     const noise = generateCorrelatedNoise(width, height, s);
     const imageData = ctx.getImageData(0, 0, width, height);
     applyBayerWeightedNoise(imageData.data, noise, width, height);
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  if (settings.prnuStrength > 0) {
+    const gain = generatePRNUGainMap(width, height, settings.prnuStrength);
+    const imageData = ctx.getImageData(0, 0, width, height);
+    applyPRNU(imageData.data, gain, width, height);
     ctx.putImageData(imageData, 0, 0);
   }
 

@@ -300,6 +300,28 @@ export default function Home() {
               </span>
             </label>
 
+            <label className="text-sm">
+              PRNU gain: {(settings.prnuStrength * 100).toFixed(0)}%
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.1}
+                value={settings.prnuStrength}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    prnuStrength: Number(e.target.value),
+                  }))
+                }
+                className="mt-1 w-full"
+              />
+              <span className="text-xs text-zinc-500">
+                Fixed per-pixel gain map. Mimics sensor photo-response
+                non-uniformity.
+              </span>
+            </label>
+
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
