@@ -254,7 +254,49 @@ export default function Home() {
                 className="mt-1 w-full"
               />
               <span className="text-xs text-zinc-500">
-                1–2 is invisible, changes hashes.
+                Correlated Bayer-weighted noise. 1–2 is invisible.
+              </span>
+            </label>
+
+            <label className="text-sm">
+              Chromatic aberration: {settings.chromaShift.toFixed(1)}px
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.1}
+                value={settings.chromaShift}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    chromaShift: Number(e.target.value),
+                  }))
+                }
+                className="mt-1 w-full"
+              />
+              <span className="text-xs text-zinc-500">
+                Sub-pixel R/B channel shift. Mimics lens color fringing.
+              </span>
+            </label>
+
+            <label className="text-sm">
+              Lens distortion: {(settings.lensDistort * 100).toFixed(0)}%
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings.lensDistort}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    lensDistort: Number(e.target.value),
+                  }))
+                }
+                className="mt-1 w-full"
+              />
+              <span className="text-xs text-zinc-500">
+                Subtle barrel distortion. Breaks "too perfect" geometry.
               </span>
             </label>
 
